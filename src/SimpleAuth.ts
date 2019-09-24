@@ -1,20 +1,17 @@
 import bcrypt = require('bcrypt');
-import bluebird = require('bluebird');
 import crypto = require('crypto');
 import Debug = require('debug');
-import sqlite3 = require('sqlite3');
+import sqlite3 = require('sqlite3-promise');
 import SqlString = require('sqlstring');
 
 import {
   Authorizer,
   Credentials,
-  Database,
+  SIMPLE_AUTH_ERRORS,
   Session,
   SimpleAuthConfig,
   UserInfo,
 } from './types';
-
-sqlite3.Database.prototype = bluebird.promisifyAll(sqlite3.Database.prototype);
 
 const SALT_ROUNDS = 10;
 const SESSION_BYTES = 20;
@@ -22,8 +19,6 @@ const SESSION_EXPIRY_MS = 86400000; // 24 hours
 
 const debug = Debug('SimpleAuth');
 const errors = Debug('SimpleAuth:error');
-
-const sqlite3F = sqlite3.verbose();
 
 const INVALID_SESSION: Session = {
   id: -1,
@@ -35,12 +30,12 @@ function invalidSession() {
 }
 
 export class SimpleAuth implements Authorizer {
-  db: Database;
+  db: sqlite3.Database;
   sqliteFile: string;
 
   constructor(config: SimpleAuthConfig) {
     this.sqliteFile = config.file;
-    this.db = {} as Database;
+    this.db = {} as sqlite3.Database;
   }
 
   async authenticateSession(sessionObj: Session) {
@@ -91,7 +86,7 @@ export class SimpleAuth implements Authorizer {
   async close() {
     await this.db.close();
     debug('close');
-    this.db = {} as Database;
+    this.db = {} as sqlite3.Database;
     return;
   }
 
@@ -103,7 +98,8 @@ export class SimpleAuth implements Authorizer {
 
   async createUser(userInfo: UserInfo) {
     const keys = ['id', 'name'];
-    const values = [userInfo.id, SqlString.escape(userInfo.name)];
+    // tslint:disable-next-line:no-any
+    const values: any[] = [userInfo.id, userInfo.name].map(SqlString.escape);
 
     if (userInfo.email) {
       keys.push('email');
@@ -125,7 +121,21 @@ export class SimpleAuth implements Authorizer {
     const valuesStr = values.join(',');
     const query = `INSERT INTO identities (${keyStr}) VALUES (${valuesStr})`;
     debug('createUser', query);
-    return this.db.runAsync(query);
+    return this.db.runAsync(query).catch((e: Error) => {
+      if (
+        e.message ===
+        'SQLITE_CONSTRAINT: UNIQUE constraint failed: identities.id'
+      ) {
+        throw new SIMPLE_AUTH_ERRORS.DuplicateId(userInfo.id.toString());
+      } else if (
+        e.message ===
+        'SQLITE_CONSTRAINT: UNIQUE constraint failed: identities.name'
+      ) {
+        throw new SIMPLE_AUTH_ERRORS.DuplicateUser(userInfo.name);
+      } else {
+        throw e;
+      }
+    });
   }
 
   async getUser(id: number): Promise<UserInfo> {
@@ -144,7 +154,7 @@ export class SimpleAuth implements Authorizer {
   async setup() {
     const sa = this;
     return new Promise((resolve, reject) => {
-      sa.db = (new sqlite3F.Database(
+      sa.db = (new sqlite3.Database(
         sa.sqliteFile,
         sqlite3.OPEN_CREATE | sqlite3.OPEN_READWRITE,
         // tslint:disable-next-line:no-any
@@ -157,7 +167,7 @@ export class SimpleAuth implements Authorizer {
             resolve(this);
           }
         }
-      ) as unknown) as Database;
+      ) as unknown) as sqlite3.Database;
     }).then(() => {
       return [
         'CREATE TABLE IF NOT EXISTS identities (' +
@@ -170,7 +180,7 @@ export class SimpleAuth implements Authorizer {
       ].reduce((accum: Promise<unknown>, query: string) => {
         debug('setup', query);
         return accum.then(() => sa.db.runAsync(query));
-      }, Promise.resolve(true));
+      }, Promise.resolve());
     });
   }
 

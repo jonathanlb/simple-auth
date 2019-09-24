@@ -79,7 +79,10 @@ describe('SimpleAuth', () => {
 
   test('Denies a non-user', async () => {
     const auth = await createSimpleAuth();
-    const result = await auth.authenticateUser({ id: 1, password: 'letMeIn' });
+    const result = await auth.authenticateUser({
+      id: '1',
+      password: 'letMeIn',
+    });
     expect(result.session).not.toBeTruthy();
     await auth.close();
   });

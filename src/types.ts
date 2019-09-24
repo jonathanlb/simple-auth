@@ -6,17 +6,11 @@ export interface Authorizer {
 }
 
 export interface Credentials {
-  email?: number;
-  id?: number;
+  email?: string;
+  id?: string;
   name?: string;
   password: string;
-}
-
-// types for bluebird/sqlite3 operations
-export interface Database {
-  close: () => Promise<unknown>;
-  getAsync: (sql: string) => Promise<unknown>;
-  runAsync: (sql: string) => Promise<unknown>;
+  phoneNumber?: number;
 }
 
 export interface Session {
@@ -28,14 +22,22 @@ export interface SimpleAuthConfig {
   file: string;
 }
 
-// TODO expose only general errors
 export const SIMPLE_AUTH_ERRORS = {
-  DuplicateId: new Error(
-    'SQLITE_CONSTRAINT: UNIQUE constraint failed: identities.id'
-  ),
-  DuplicateUser: new Error(
-    'SQLITE_CONSTRAINT: UNIQUE constraint failed: identities.name'
-  ),
+  DuplicateId: class extends Error {
+    constructor(id: string) {
+      super(`Unique constraint failed: credentials id '${id}'`);
+    }
+  },
+  DuplicateUser: class extends Error {
+    constructor(userName: string) {
+      super(`Unique constraint failed: credentials name '${userName}'`);
+    }
+  },
+  NotAuthorizedException: class extends Error {
+    constructor(msg: string) {
+      super(msg);
+    }
+  },
 };
 
 export interface UserInfo {
