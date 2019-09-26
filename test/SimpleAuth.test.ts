@@ -1,15 +1,40 @@
+import Debug = require('debug');
+
 import { SimpleAuth, SimpleAuthConfig } from '../src';
-import { SIMPLE_AUTH_ERRORS } from '../src/types';
+import { Credentials, SIMPLE_AUTH_ERRORS, UserInfo } from '../src/types';
+
+const debug = Debug('SimpleAuth:test');
+
+// tslint:disable-next-line:no-any
+function aliceInfo(overrides: any = {}): UserInfo {
+  return Object.assign(
+    {
+      email: 'alice@example.com',
+      id: '88',
+      name: 'Alice',
+      password: 's3cret',
+    },
+    overrides
+  );
+}
 
 async function createSimpleAuth(): Promise<SimpleAuth> {
   const config = {
-    file: ':memory:',
+    dbFileName: ':memory:',
+    privateKeyFileName: 'test/jwtRS256.key',
+    publicKeyFileName: 'test/jwtRS256.key.pub',
   };
   const auth = new SimpleAuth(config);
   await auth.setup();
   return auth;
 }
 
+// Tests require public and private keys.
+//
+// ssh-keygen -t rsa -b 1024 -m PEM -f jwtRS256.key
+// # Don't add passphrase
+// openssl rsa -in jwtRS256.key -pubout -outform PEM -out jwtRS256.key.pub
+//
 describe('SimpleAuth', () => {
   test('Initializes', async () => {
     const auth = await createSimpleAuth();
@@ -18,11 +43,7 @@ describe('SimpleAuth', () => {
 
   test('Creates a user', async () => {
     const auth = await createSimpleAuth();
-    const info = {
-      id: 88,
-      name: 'Alice',
-      email: 'alice@example.com',
-    };
+    const info = aliceInfo();
     await auth.createUser(info);
     const storedInfo = await auth.getUser(info.id);
     expect(storedInfo.id).toBe(info.id);
@@ -33,45 +54,40 @@ describe('SimpleAuth', () => {
 
   test('Rejects duplicate user ids', async () => {
     const auth = await createSimpleAuth();
-    await auth.createUser({ id: 89, name: 'Alice' });
-    expect(auth.createUser({ id: 89, name: 'Bob' })).rejects.toThrow(
-      SIMPLE_AUTH_ERRORS.DuplicateId
-    );
-    await auth.close();
+    await auth.createUser(aliceInfo());
+    expect(
+      auth.createUser(aliceInfo({ name: 'Bob', email: 'bob@example.com' }))
+    ).rejects.toThrow(SIMPLE_AUTH_ERRORS.DuplicateId);
   });
 
   test('Rejects duplicate user names', async () => {
     const auth = await createSimpleAuth();
-    await auth.createUser({ id: 90, name: 'Alice' });
-    expect(auth.createUser({ id: 91, name: 'Alice' })).rejects.toThrow(
-      SIMPLE_AUTH_ERRORS.DuplicateUser
-    );
-    await auth.close();
+    await auth.createUser(aliceInfo());
+    expect(
+      auth.createUser(aliceInfo({ id: '91', email: 'alice@aol.com' }))
+    ).rejects.toThrow(SIMPLE_AUTH_ERRORS.DuplicateUser);
   });
 
   test('Authorizes a user', async () => {
     const auth = await createSimpleAuth();
-    await auth.createUser({ id: 89, name: 'Alice', secret: 'seecr3t' });
+    const alice = aliceInfo();
+    await auth.createUser(alice);
     const result = await auth.authenticateUser({
-      name: 'Alice',
-      password: 'seecr3t',
+      email: alice.email,
+      password: alice.password as string,
     });
     expect(result.session).toBeTruthy();
-    expect(result.id).toBe(89);
+    expect(result.id).toEqual(alice.id);
     await auth.close();
   });
 
   test('Denies a user', async () => {
     const auth = await createSimpleAuth();
-    await auth.createUser({
-      id: 89,
-      name: 'Alice',
-      email: 'alice@gmail.com',
-      secret: 'seecr3t',
-    });
+    const alice = aliceInfo();
+    await auth.createUser(alice);
     const result = await auth.authenticateUser({
-      name: 'alice@gmail.com',
-      password: '?',
+      email: alice.email,
+      password: '?' as string,
     });
     expect(result.session).not.toBeTruthy();
     await auth.close();
@@ -81,7 +97,8 @@ describe('SimpleAuth', () => {
     const auth = await createSimpleAuth();
     const result = await auth.authenticateUser({
       id: '1',
-      password: 'letMeIn',
+      email: 'alice@gmail.com',
+      password: 'letMeIn' as string,
     });
     expect(result.session).not.toBeTruthy();
     await auth.close();
@@ -89,32 +106,18 @@ describe('SimpleAuth', () => {
 
   test('Denies non-credentials', async () => {
     const auth = await createSimpleAuth();
-    const result = await auth.authenticateUser({ password: 'letMeIn' });
+    const result = await auth.authenticateUser(aliceInfo() as Credentials);
     expect(result.session).not.toBeTruthy();
-    await auth.close();
-  });
-
-  test('Sessions are short-term idempotent', async () => {
-    const auth = await createSimpleAuth();
-    await auth.createUser({ id: 89, name: 'Alice', secret: 'seecr3t' });
-    const s0 = await auth.authenticateUser({
-      name: 'Alice',
-      password: 'seecr3t',
-    });
-    const s1 = await auth.authenticateUser({
-      name: 'Alice',
-      password: 'seecr3t',
-    });
-    expect(s1).toEqual(s0);
     await auth.close();
   });
 
   test('Authorizes a session', async () => {
     const auth = await createSimpleAuth();
-    await auth.createUser({ id: 89, name: 'Alice', secret: 'seecr3t' });
+    const alice = aliceInfo();
+    await auth.createUser(alice);
     const session = await auth.authenticateUser({
-      name: 'Alice',
-      password: 'seecr3t',
+      email: alice.email,
+      password: alice.password as string,
     });
     const result = await auth.authenticateSession(session);
     expect(result).toBeTruthy();
@@ -123,23 +126,11 @@ describe('SimpleAuth', () => {
 
   test('Denies a session', async () => {
     const auth = await createSimpleAuth();
-    const result = await auth.authenticateSession({ id: 17, session: 'hello' });
-    expect(result).not.toBeTruthy();
-    await auth.close();
-  });
-
-  test('Closes a session', async () => {
-    const auth = await createSimpleAuth();
-    await auth.createUser({ id: 89, name: 'Alice', secret: 'seecr3t' });
-    const session = await auth.authenticateUser({
-      name: 'Alice',
-      password: 'seecr3t',
+    const result = await auth.authenticateSession({
+      id: '17',
+      session: 'hello',
     });
-    let result = await auth.authenticateSession(session);
-    expect(result).toBeTruthy();
-
-    await auth.closeSession(89);
-    result = await auth.authenticateSession(session);
+    debug('deny session', result);
     expect(result).not.toBeTruthy();
     await auth.close();
   });

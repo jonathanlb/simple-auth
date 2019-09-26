@@ -14,12 +14,15 @@ export interface Credentials {
 }
 
 export interface Session {
-  id: number;
+  email?: string;
+  id: string;
   session: string;
 }
 
 export interface SimpleAuthConfig {
-  file: string;
+  dbFileName: string;
+  privateKeyFileName: string;
+  publicKeyFileName: string;
 }
 
 export const SIMPLE_AUTH_ERRORS = {
@@ -33,6 +36,11 @@ export const SIMPLE_AUTH_ERRORS = {
       super(`Unique constraint failed: credentials name '${userName}'`);
     }
   },
+  ExpiredSession: class extends Error {
+    constructor(expMillis: number) {
+      super(`Session expired at ${expMillis}`);
+    }
+  },
   NotAuthorizedException: class extends Error {
     constructor(msg: string) {
       super(msg);
@@ -41,9 +49,9 @@ export const SIMPLE_AUTH_ERRORS = {
 };
 
 export interface UserInfo {
-  id: number;
+  id: string;
   name: string;
   email?: string;
   phone?: number;
-  secret?: string;
+  password?: string;
 }

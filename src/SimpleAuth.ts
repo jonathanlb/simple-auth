@@ -1,6 +1,8 @@
 import bcrypt = require('bcrypt');
 import crypto = require('crypto');
 import Debug = require('debug');
+import fs = require('fs');
+import jwt = require('jsonwebtoken');
 import sqlite3 = require('sqlite3-promise');
 import SqlString = require('sqlstring');
 
@@ -16,53 +18,83 @@ import {
 const SALT_ROUNDS = 10;
 const SESSION_BYTES = 20;
 const SESSION_EXPIRY_MS = 86400000; // 24 hours
+const SIGN_ALGORITHM = 'RS256'; // for ssh-keygen -t rsa ... ; openssl rsa
+
+const fsp = fs.promises;
 
 const debug = Debug('SimpleAuth');
 const errors = Debug('SimpleAuth:error');
 
 const INVALID_SESSION: Session = {
-  id: -1,
+  email: '',
+  id: '-1',
   session: '',
 };
 
-function invalidSession() {
+function invalidSession(): Session {
   return Object.assign({}, INVALID_SESSION);
 }
 
 export class SimpleAuth implements Authorizer {
   db: sqlite3.Database;
   sqliteFile: string;
+  privateKey: string;
+  privateKeyFileName: string;
+  publicKey: string;
+  publicKeyFileName: string;
 
   constructor(config: SimpleAuthConfig) {
-    this.sqliteFile = config.file;
+    this.sqliteFile = config.dbFileName;
     this.db = {} as sqlite3.Database;
+    this.privateKey = '';
+    this.privateKeyFileName = config.privateKeyFileName;
+    this.publicKey = '';
+    this.publicKeyFileName = config.publicKeyFileName;
   }
 
   async authenticateSession(sessionObj: Session) {
-    const { id, session } = sessionObj;
-    if (!id || !session) {
-      return Promise.resolve(false);
-    }
+    try {
+      const { session } = sessionObj;
+      const [header, payload, sig] = session.split('.');
+      debug('auth', header, payload, sig);
+      const payloadObj = JSON.parse(Buffer.from(payload, 'base64').toString());
+      debug('payloadObj', payloadObj);
+      const { email, exp } = payloadObj;
+      const headerObj = JSON.parse(Buffer.from(header, 'base64').toString());
+      debug('headerObj', headerObj);
+      const { clockTimestamp } = headerObj;
 
-    const now = new Date().getTime();
-    const query = `SELECT session FROM identities WHERE id=${id} AND sessionExpiry>=${now}`;
-    debug('authenticatSession', query);
-    // tslint:disable-next-line:no-any
-    const result = (await this.db.getAsync(query)) as any;
-    return Promise.resolve(result && result.session === session);
+      if (exp < new Date().getTime() / 1000) {
+        throw new SIMPLE_AUTH_ERRORS.ExpiredSession(exp);
+      }
+
+      const verifyOpts = {
+        algorithm: headerObj.alg,
+        audience: email || '',
+      };
+      debug('verify', session, verifyOpts);
+      const publicKey = await this.getPublicKey();
+      const decoded = jwt.verify(session, publicKey, verifyOpts);
+      debug('decoded', decoded);
+
+      return decoded;
+    } catch (e) {
+      errors('authenticateSession', e.message);
+      return false;
+    }
   }
 
   async authenticateUser(credentials: Credentials): Promise<Session> {
     debug('authenticateUser', credentials);
     let query: string;
     if (credentials.id) {
-      query = `SELECT id, secret FROM identities WHERE id=${credentials.id}`;
+      query = `SELECT email, id, secret FROM identities WHERE id=${credentials.id}`;
     } else if (credentials.name) {
-      query = `SELECT id, secret FROM identities WHERE name=${SqlString.escape(
+      query = `SELECT email, id, secret FROM identities WHERE name=${SqlString.escape(
         credentials.name
       )}`;
     } else if (credentials.email) {
-      query = `SELECT id, secret FROM identities WHERE email=${SqlString.escape(
+      query = `SELECT email, id, secret FROM identities WHERE email=${SqlString.escape(
         credentials.email
       )}`;
     } else {
@@ -77,10 +109,12 @@ export class SimpleAuth implements Authorizer {
       !user.secret ||
       !(await bcrypt.compare(credentials.password, user.secret))
     ) {
+      debug('found user, invalid password', user);
       return Promise.resolve(invalidSession());
     }
 
-    return this.updateSession(user.id);
+    debug('found user', user);
+    return this.updateSession(user.id, user.email);
   }
 
   async close() {
@@ -90,12 +124,6 @@ export class SimpleAuth implements Authorizer {
     return;
   }
 
-  async closeSession(userId: number) {
-    const query = `UPDATE identities SET session=NULL, sessionExpiry=0 WHERE id=${userId}`;
-    debug('closeSession', query);
-    return this.db.runAsync(query);
-  }
-
   async createUser(userInfo: UserInfo) {
     const keys = ['id', 'name'];
     // tslint:disable-next-line:no-any
@@ -103,7 +131,7 @@ export class SimpleAuth implements Authorizer {
 
     if (userInfo.email) {
       keys.push('email');
-      values.push(SqlString.escape(userInfo.email));
+      values.push(SqlString.escape(userInfo.email.toLowerCase()));
     }
 
     if (userInfo.phone) {
@@ -111,9 +139,9 @@ export class SimpleAuth implements Authorizer {
       values.push(userInfo.phone);
     }
 
-    if (userInfo.secret) {
+    if (userInfo.password) {
       keys.push('secret');
-      const hashed = await bcrypt.hash(userInfo.secret, SALT_ROUNDS);
+      const hashed = await bcrypt.hash(userInfo.password, SALT_ROUNDS);
       values.push(SqlString.escape(hashed));
     }
 
@@ -138,10 +166,40 @@ export class SimpleAuth implements Authorizer {
     });
   }
 
-  async getUser(id: number): Promise<UserInfo> {
-    const query = `SELECT * FROM identities WHERE id=${id}`;
+  async getPrivateKey(): Promise<string> {
+    if (!this.privateKey) {
+      this.privateKey = await fsp
+        .readFile('test/jwtRS256.key')
+        .then(b => b.toString());
+    }
+    return this.privateKey;
+  }
+
+  async getPublicKey(): Promise<string> {
+    if (!this.publicKey) {
+      this.publicKey = await fsp
+        .readFile('test/jwtRS256.key.pub')
+        .then(b => b.toString());
+    }
+    return this.publicKey;
+  }
+
+  async getUser(id: number | string): Promise<UserInfo> {
+    let query: string;
+    if (typeof id === 'number') {
+      query = `SELECT * FROM identities WHERE id=${id}`;
+    } else {
+      if (!id.match(/^\d+/)) {
+        throw new TypeError(
+          `getUser: id must be natural number, received '${id}'`
+        );
+      }
+      query = `SELECT * FROM identities WHERE id=${id}`;
+    }
     debug('createUser', query);
-    return this.db.getAsync(query) as Promise<UserInfo>;
+    const user = await this.db.getAsync(query);
+    user.id = user.id.toString();
+    return user;
   }
 
   async setPassword(userId: number, password: string) {
@@ -184,24 +242,23 @@ export class SimpleAuth implements Authorizer {
     });
   }
 
-  async updateSession(userId: number): Promise<Session> {
-    const db = this.db;
+  /**
+   * Create or refresh a session for a user.
+   */
+  async updateSession(userId: number, email: string): Promise<Session> {
+    debug('updateSession', userId, email);
     const now = new Date().getTime();
-    const newExpiry = now + SESSION_EXPIRY_MS;
-    const newSession = crypto.randomBytes(SESSION_BYTES).toString('hex');
-
-    let query =
-      `UPDATE identities SET session=${SqlString.escape(newSession)} ` +
-      `WHERE id=${userId} AND sessionExpiry<=${now}`;
-    debug('serialize update', query);
-    await db.runAsync(query);
-
-    query = `UPDATE identities SET sessionExpiry=${newExpiry} WHERE id=${userId}`;
-    debug('serialize update', query);
-    await db.runAsync(query);
-
-    query = `SELECT id, session FROM identities WHERE id=${userId}`;
-    debug('serialize update', query);
-    return db.getAsync(query) as Promise<Session>;
+    const exp = (now + SESSION_EXPIRY_MS) / 1000; // jwt uses epoch seconds
+    const token = { exp, userId, email };
+    const privateKey = await this.getPrivateKey();
+    const signOpts = {
+      algorithm: SIGN_ALGORITHM,
+      audience: email || '',
+    };
+    return {
+      email,
+      id: userId.toString(),
+      session: jwt.sign(token, privateKey, signOpts),
+    };
   }
 }
