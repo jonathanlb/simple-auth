@@ -2,7 +2,11 @@
   "name": "simple-auth",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+	"main": "build/src/index.js",
+  "types": "build/src/index.d.ts",
+  "files": [
+    "build/src"
+  ],
   "scripts": {
     "test": "jest",
     "check": "gts check",
