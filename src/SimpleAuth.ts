@@ -20,8 +20,6 @@ const SESSION_BYTES = 20;
 const SESSION_EXPIRY_MS = 86400000; // 24 hours
 const SIGN_ALGORITHM = 'RS256'; // for ssh-keygen -t rsa ... ; openssl rsa
 
-const fsp = fs.promises;
-
 const debug = Debug('SimpleAuth');
 const errors = Debug('SimpleAuth:error');
 
@@ -166,20 +164,26 @@ export class SimpleAuth implements Authorizer {
     });
   }
 
+  /** Read a file contents as a string until we update to Node v10+. */
+  fileToString(fileName: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      fs.readFile(fileName, (err, data) => {
+        if (err) reject(err);
+        resolve(data.toString());
+      });
+    });
+  }
+
   async getPrivateKey(): Promise<string> {
     if (!this.privateKey) {
-      this.privateKey = await fsp
-        .readFile('test/jwtRS256.key')
-        .then(b => b.toString());
+      this.privateKey = await this.fileToString(this.privateKeyFileName);
     }
     return this.privateKey;
   }
 
   async getPublicKey(): Promise<string> {
     if (!this.publicKey) {
-      this.publicKey = await fsp
-        .readFile('test/jwtRS256.key.pub')
-        .then(b => b.toString());
+      this.publicKey = await this.fileToString(this.publicKeyFileName);
     }
     return this.publicKey;
   }
@@ -204,7 +208,9 @@ export class SimpleAuth implements Authorizer {
 
   async setPassword(userId: number, password: string) {
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
-    const query = `UPDATE identities SET password=${hashed} WHERE id=${userId}`;
+    const query = `UPDATE identities SET secret=${SqlString.escape(
+      hashed
+    )} WHERE id=${userId}`;
     debug('setPassword', query);
     return this.db.runAsync(query);
   }

@@ -134,4 +134,21 @@ describe('SimpleAuth', () => {
     expect(result).not.toBeTruthy();
     await auth.close();
   });
+
+  test('Updates a user password', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    const newPassword = `--${alice.password}--`;
+    // tslint:disable-next-line
+    await auth.setPassword(parseInt(alice.id, 10), newPassword);
+    const session = await auth.authenticateUser({
+      email: alice.email,
+      password: newPassword,
+    });
+    expect(session.session).toBeTruthy();
+    expect(session.id).toEqual(alice.id);
+    await auth.close();
+  });
 });
