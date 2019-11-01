@@ -74,8 +74,11 @@ export class SimpleAuth implements Authorizer {
       const publicKey = await this.getPublicKey();
       const decoded = jwt.verify(session, publicKey, verifyOpts);
       debug('decoded', decoded);
-
-      return decoded;
+      if (this.validateSessionPayload(sessionObj, decoded)) {
+        return decoded;
+      } else {
+        return false;
+      }
     } catch (e) {
       errors('authenticateSession', e.message);
       return false;
@@ -148,6 +151,7 @@ export class SimpleAuth implements Authorizer {
     const query = `INSERT INTO identities (${keyStr}) VALUES (${valuesStr})`;
     debug('createUser', query);
     return this.db.runAsync(query).catch((e: Error) => {
+      errors('CREATE USER', e.message);
       if (
         e.message ===
         'SQLITE_CONSTRAINT: UNIQUE constraint failed: identities.id'
@@ -204,6 +208,10 @@ export class SimpleAuth implements Authorizer {
     const user = await this.db.getAsync(query);
     user.id = user.id.toString();
     return user;
+  }
+
+  async resetPassword() {
+    throw new Error('resetPassword not yet implemented');
   }
 
   async setPassword(userId: number, password: string) {
@@ -266,5 +274,17 @@ export class SimpleAuth implements Authorizer {
       id: userId.toString(),
       session: jwt.sign(token, privateKey, signOpts),
     };
+  }
+
+  // tslint:disable-next-line:no-any
+  validateSessionPayload(session: Session, payload: any): boolean {
+    debug('validate', session, payload);
+    if (session.email && payload.email && session.email !== payload.email) {
+      return false;
+    }
+    if (payload.userId && session.id.toString() !== payload.userId.toString()) {
+      return false;
+    }
+    return true;
   }
 }
