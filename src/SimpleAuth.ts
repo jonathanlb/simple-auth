@@ -19,6 +19,7 @@ const SALT_ROUNDS = 10;
 const SESSION_BYTES = 20;
 const SESSION_EXPIRY_MS = 86400000; // 24 hours
 const SIGN_ALGORITHM = 'RS256'; // for ssh-keygen -t rsa ... ; openssl rsa
+const TEMP_PASSWORD_LENGTH = 8;
 
 const debug = Debug('SimpleAuth');
 const errors = Debug('SimpleAuth:error');
@@ -87,17 +88,15 @@ export class SimpleAuth implements Authorizer {
 
   async authenticateUser(credentials: Credentials): Promise<Session> {
     debug('authenticateUser', credentials);
-    let query: string;
+    let query =
+      'SELECT email, id, secret, recovery, recoveryExpiry FROM identities ';
+
     if (credentials.id) {
-      query = `SELECT email, id, secret FROM identities WHERE id=${credentials.id}`;
+      query += `WHERE id=${credentials.id}`;
     } else if (credentials.name) {
-      query = `SELECT email, id, secret FROM identities WHERE name=${SqlString.escape(
-        credentials.name
-      )}`;
+      query += `WHERE name=${SqlString.escape(credentials.name)}`;
     } else if (credentials.email) {
-      query = `SELECT email, id, secret FROM identities WHERE email=${SqlString.escape(
-        credentials.email
-      )}`;
+      query += `WHERE email=${SqlString.escape(credentials.email)}`;
     } else {
       return Promise.resolve(invalidSession());
     }
@@ -105,17 +104,28 @@ export class SimpleAuth implements Authorizer {
     debug(query);
     // tslint:disable-next-line:no-any
     const user = (await this.db.getAsync(query)) as any;
-    if (
-      !user ||
-      !user.secret ||
-      !(await bcrypt.compare(credentials.password, user.secret))
-    ) {
-      debug('found user, invalid password', user);
+    if (!user || !user.secret) {
+      debug('found user, no password hashed', user);
       return Promise.resolve(invalidSession());
     }
 
-    debug('found user', user);
-    return this.updateSession(user.id, user.email);
+    if (await bcrypt.compare(credentials.password, user.secret)) {
+      debug('password OK', user);
+      return this.updateSession(user.id, user.email);
+    }
+
+    if (user.recoveryExpiry < new Date().getTime() / 1000) {
+      debug('hint expired', user);
+      return Promise.resolve(invalidSession());
+    }
+    if (await bcrypt.compare(credentials.password, user.recovery)) {
+      debug('hint OK, resetting password', user);
+      await this.setPassword(user.id, credentials.password);
+      return this.updateSession(user.id, user.email);
+    }
+
+    debug('found user, invalid password/hint', user);
+    return Promise.resolve(invalidSession());
   }
 
   async close() {
@@ -168,6 +178,13 @@ export class SimpleAuth implements Authorizer {
     });
   }
 
+  async deliverPasswordReset(userInfo: UserInfo, newPassword: string) {
+    throw new Error(
+      'deliverPasswordReset not implemented/configured.\n' +
+        'monkey punch this SimpleAuth with async deliverPasswordReset(UserInfo, string) method'
+    );
+  }
+
   /** Read a file contents as a string until we update to Node v10+. */
   fileToString(fileName: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -204,14 +221,73 @@ export class SimpleAuth implements Authorizer {
       }
       query = `SELECT * FROM identities WHERE id=${id}`;
     }
-    debug('createUser', query);
+    debug('getUser', query);
     const user = await this.db.getAsync(query);
-    user.id = user.id.toString();
+    if (user && user.id) {
+      user.id = user.id.toString();
+    }
     return user;
   }
 
-  async resetPassword() {
-    throw new Error('resetPassword not yet implemented');
+  async getUserByEmail(email: string): Promise<UserInfo> {
+    const query = `SELECT * FROM identities WHERE email=${SqlString.escape(
+      email.trim().toLowerCase()
+    )}`;
+    debug('getUserByEmail', query);
+    const user = await this.db.getAsync(query);
+    if (user && user.id) {
+      user.id = user.id.toString();
+    }
+    return user;
+  }
+
+  async getUserByName(name: string): Promise<UserInfo> {
+    const query = `SELECT * FROM identities WHERE name=${SqlString.escape(
+      name.trim()
+    )}`;
+    debug('getUserByName', query);
+    const user = await this.db.getAsync(query);
+    if (user && user.id) {
+      user.id = user.id.toString();
+    }
+    return user;
+  }
+
+  async resetPassword(userId: UserInfo) {
+    let validatedId: UserInfo = {
+      id: '',
+      name: '',
+    };
+    if (userId.id) {
+      validatedId = await this.getUser(userId.id);
+    } else if (userId.email) {
+      validatedId = await this.getUserByEmail(userId.email);
+    } else if (userId.name) {
+      validatedId = await this.getUserByName(userId.name);
+    }
+
+    if (!validatedId || !validatedId.id) {
+      errors(`cannot reset password for ${userId}`);
+      return '';
+    }
+
+    const tempPassword = crypto
+      .randomBytes(TEMP_PASSWORD_LENGTH)
+      .toString('ascii');
+
+    const now = new Date().getTime();
+    const exp = (now + SESSION_EXPIRY_MS) / 1000;
+    const hashed = await bcrypt.hash(tempPassword, SALT_ROUNDS);
+    const query =
+      'UPDATE identities SET ' +
+      `recovery=${SqlString.escape(hashed)}, ` +
+      `recoveryExpiry=${exp} ` +
+      `WHERE id=${validatedId.id}`;
+    debug('resetPassword', query);
+    await this.db.runAsync(query);
+
+    await this.deliverPasswordReset(userId, tempPassword);
+    return tempPassword;
   }
 
   async setPassword(userId: number, password: string) {

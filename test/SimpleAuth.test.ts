@@ -237,10 +237,106 @@ describe('SimpleAuth', () => {
     return auth.close();
   });
 
-  test('Resets a user password', async () => {
+  test('Checks for password delivery override', async () => {
     const auth = await createSimpleAuth();
     const alice = aliceInfo();
     await auth.createUser(alice);
+
+    let error;
+    try {
+      await auth.resetPassword(alice);
+    } catch (e) {
+      error = e;
+    }
+    expect(error.message).toEqual(
+      expect.stringMatching(/deliverPasswordReset not implemented/)
+    );
+    return auth.close();
+  });
+
+  test('Resets a user password by id', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    alice.email = '';
+    let newPassword = '';
+    const oldPassword = alice.password;
+    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
+      newPassword = p;
+    };
+    await auth.resetPassword(alice);
+    expect(newPassword).not.toEqual('');
+
+    let result = await auth.authenticateUser({
+      name: alice.name,
+      password: newPassword,
+    });
+    expect(result.session).toBeTruthy();
+
+    result = await auth.authenticateUser({
+      name: alice.name,
+      password: newPassword + '___',
+    });
+    expect(result.session).not.toBeTruthy();
+
+    // Old password is invalid until once user resets it.
+    result = await auth.authenticateUser({
+      name: alice.name,
+      password: oldPassword as string,
+    });
+    expect(result.session).not.toBeTruthy();
+
+    return auth.close();
+  });
+
+  test('Resets a user password by email', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    alice.id = '';
+    alice.name = '';
+    let newPassword = '';
+    const oldPassword = alice.password;
+    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
+      newPassword = p;
+    };
+    await auth.resetPassword(alice);
+    expect(newPassword).not.toEqual('');
+
+    return auth.close();
+  });
+
+  test('Resets a user password by name', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    alice.id = '';
+    alice.email = '';
+    let newPassword = '';
+    const oldPassword = alice.password;
+    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
+      newPassword = p;
+    };
+    await auth.resetPassword(alice);
+    expect(newPassword).not.toEqual('');
+
+    return auth.close();
+  });
+
+  test('Silently fails to reset password for unknown user', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+
+    let newPassword = '';
+    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
+      newPassword = p;
+    };
+    const result = await auth.resetPassword(alice);
+    expect(newPassword).toEqual('');
+    expect(result).toEqual('');
 
     return auth.close();
   });
