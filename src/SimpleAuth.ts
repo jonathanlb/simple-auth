@@ -56,6 +56,9 @@ export class SimpleAuth implements Authorizer {
       const { session } = sessionObj;
       const [header, payload, sig] = session.split('.');
       debug('auth', header, payload, sig);
+      if (!payload || !sig) {
+        return false;
+      }
       const payloadObj = JSON.parse(Buffer.from(payload, 'base64').toString());
       debug('payloadObj', payloadObj);
       const { email, exp } = payloadObj;
@@ -320,8 +323,7 @@ export class SimpleAuth implements Authorizer {
       return [
         'CREATE TABLE IF NOT EXISTS identities (' +
           'id INT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE, email TEXT, phone INT, ' +
-          'secret TEXT, recovery TEXT, recoveryExpiry INT DEFAULT 0, ' +
-          'session TEXT, sessionExpiry INT DEFAULT 0)',
+          'secret TEXT, recovery TEXT, recoveryExpiry INT DEFAULT 0)',
         'CREATE INDEX IF NOT EXISTS identities_by_id ON identities(id)',
         'CREATE INDEX IF NOT EXISTS identities_by_name ON identities(name)',
         'CREATE INDEX IF NOT EXISTS identities_by_id ON identities(id)',
