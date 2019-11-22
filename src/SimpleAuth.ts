@@ -89,7 +89,10 @@ export class SimpleAuth implements Authorizer {
     }
   }
 
-  async authenticateUser(credentials: Credentials): Promise<Session> {
+  async authenticateUser(
+    credentials: Credentials,
+    sessionExpiryMillisOpt?: number
+  ): Promise<Session> {
     debug('authenticateUser', credentials);
     let query =
       'SELECT email, id, secret, recovery, recoveryExpiry FROM identities ';
@@ -114,7 +117,7 @@ export class SimpleAuth implements Authorizer {
 
     if (await bcrypt.compare(credentials.password, user.secret)) {
       debug('password OK', user);
-      return this.updateSession(user.id, user.email);
+      return this.updateSession(user.id, user.email, sessionExpiryMillisOpt);
     }
 
     if (user.recoveryExpiry < new Date().getTime() / 1000) {
@@ -124,7 +127,7 @@ export class SimpleAuth implements Authorizer {
     if (await bcrypt.compare(credentials.password, user.recovery)) {
       debug('hint OK, resetting password', user);
       await this.setPassword(user.id, credentials.password);
-      return this.updateSession(user.id, user.email);
+      return this.updateSession(user.id, user.email, sessionExpiryMillisOpt);
     }
 
     debug('found user, invalid password/hint', user);
@@ -337,11 +340,16 @@ export class SimpleAuth implements Authorizer {
   /**
    * Create or refresh a session for a user.
    */
-  async updateSession(userId: number, email: string): Promise<Session> {
-    debug('updateSession', userId, email);
+  async updateSession(
+    userId: number | string,
+    email: string,
+    sessionExpiryMillisOpt?: number
+  ): Promise<Session> {
+    debug('updateSession', userId, email, sessionExpiryMillisOpt);
+    const sessionExpiryMillis = sessionExpiryMillisOpt || SESSION_EXPIRY_MS;
     const now = new Date().getTime();
-    const exp = (now + SESSION_EXPIRY_MS) / 1000; // jwt uses epoch seconds
-    const token = { exp, userId, email };
+    const exp = (now + sessionExpiryMillis) / 1000; // jwt uses epoch seconds
+    const token = { exp, userId: userId.toString(), email };
     const privateKey = await this.getPrivateKey();
     const signOpts = {
       algorithm: SIGN_ALGORITHM,

@@ -182,7 +182,21 @@ describe('SimpleAuth', () => {
     return auth.close();
   });
 
-  test('Denies corrupt credentials', async () => {
+  test('Denies corrupt credential email', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const session = await auth.authenticateUser({
+      name: alice.name,
+      password: alice.password as string,
+    });
+    session.email += 'xxx';
+    const result = await auth.authenticateSession(session);
+    expect(result).not.toBeTruthy();
+    return auth.close();
+  });
+
+  test('Denies corrupt credential id', async () => {
     const auth = await createSimpleAuth();
     const alice = aliceInfo();
     await auth.createUser(alice);
@@ -338,6 +352,20 @@ describe('SimpleAuth', () => {
     expect(newPassword).toEqual('');
     expect(result).toEqual('');
 
+    return auth.close();
+  });
+
+  test('Rejects expired session', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const session = await auth.updateSession(
+      alice.id,
+      alice.email as string,
+      -10000
+    );
+    const result = await auth.authenticateSession(session);
+    expect(result).not.toBeTruthy();
     return auth.close();
   });
 });
