@@ -1,7 +1,12 @@
 import Debug = require('debug');
 
 import { SimpleAuth, SimpleAuthConfig } from '../src';
-import { Credentials, SIMPLE_AUTH_ERRORS, UserInfo } from '../src/types';
+import {
+  Credentials,
+  DecodedSession,
+  SIMPLE_AUTH_ERRORS,
+  UserInfo,
+} from '../src/types';
 
 const debug = Debug('SimpleAuth:test');
 
@@ -116,7 +121,7 @@ describe('SimpleAuth', () => {
       password: alice.password as string,
     });
     expect(result.session).toBeTruthy();
-    expect(result.id).toEqual(alice.id);
+    expect(result.userId).toEqual(alice.id);
     return auth.close();
   });
 
@@ -129,7 +134,7 @@ describe('SimpleAuth', () => {
       password: alice.password as string,
     });
     expect(result.session).toBeTruthy();
-    expect(result.id).toEqual(alice.id);
+    expect(result.userId).toEqual(alice.id);
     return auth.close();
   });
 
@@ -204,7 +209,7 @@ describe('SimpleAuth', () => {
       name: alice.name,
       password: alice.password as string,
     });
-    session.id += '1';
+    session.userId += '1';
     const result = await auth.authenticateSession(session);
     expect(result).not.toBeTruthy();
     return auth.close();
@@ -218,15 +223,25 @@ describe('SimpleAuth', () => {
       email: alice.email,
       password: alice.password as string,
     });
-    const result = await auth.authenticateSession(session);
+    const result = (await auth.authenticateSession(session)) as DecodedSession;
+    const nowS = new Date().getTime() / 1000;
     expect(result).toBeTruthy();
+    expect(result.exp).toBeGreaterThanOrEqual(nowS);
+    expect(result.iat).toBeGreaterThan(0);
+    expect(result.iat).toBeLessThanOrEqual(nowS);
+    expect(result.aud).toEqual(alice.email);
+    expect(result.email).toEqual(alice.email);
+    expect(result.userId).toEqual(alice.id);
     return auth.close();
   });
 
   test('Denies a session', async () => {
     const auth = await createSimpleAuth();
+    const nowS = new Date().getTime() / 1000;
     const result = await auth.authenticateSession({
-      id: '17',
+      exp: nowS + 360,
+      iat: nowS,
+      userId: '17',
       session: 'hello',
     });
     debug('deny session', result);
@@ -247,7 +262,7 @@ describe('SimpleAuth', () => {
       password: newPassword,
     });
     expect(session.session).toBeTruthy();
-    expect(session.id).toEqual(alice.id);
+    expect(session.userId).toEqual(alice.id);
     return auth.close();
   });
 

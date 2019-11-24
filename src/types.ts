@@ -13,9 +13,15 @@ export interface Credentials {
   phoneNumber?: number;
 }
 
-export interface Session {
+export interface DecodedSession {
+  aud?: string;
   email?: string;
-  id: string;
+  exp: number;
+  iat: number;
+  userId: string;
+}
+
+export interface Session extends DecodedSession {
   session: string;
 }
 

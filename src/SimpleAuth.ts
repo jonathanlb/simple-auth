@@ -9,6 +9,7 @@ import SqlString = require('sqlstring');
 import {
   Authorizer,
   Credentials,
+  DecodedSession,
   SIMPLE_AUTH_ERRORS,
   Session,
   SimpleAuthConfig,
@@ -26,7 +27,9 @@ const errors = Debug('SimpleAuth:error');
 
 const INVALID_SESSION: Session = {
   email: '',
-  id: '-1',
+  exp: 0,
+  iat: 0,
+  userId: '-1',
   session: '',
 };
 
@@ -51,7 +54,9 @@ export class SimpleAuth implements Authorizer {
     this.publicKeyFileName = config.publicKeyFileName;
   }
 
-  async authenticateSession(sessionObj: Session) {
+  async authenticateSession(
+    sessionObj: Session
+  ): Promise<DecodedSession | boolean> {
     try {
       const { session } = sessionObj;
       const [header, payload, sig] = session.split('.');
@@ -76,10 +81,10 @@ export class SimpleAuth implements Authorizer {
       };
       debug('verify', session, verifyOpts);
       const publicKey = await this.getPublicKey();
-      const decoded = jwt.verify(session, publicKey, verifyOpts);
+      const decoded = jwt.verify(session, publicKey, verifyOpts); // XXX async
       debug('decoded', decoded);
       if (this.validateSessionPayload(sessionObj, decoded)) {
-        return decoded;
+        return decoded as DecodedSession;
       } else {
         return false;
       }
@@ -357,8 +362,10 @@ export class SimpleAuth implements Authorizer {
     };
     return {
       email,
-      id: userId.toString(),
-      session: jwt.sign(token, privateKey, signOpts),
+      exp,
+      iat: now / 1000,
+      userId: userId.toString(),
+      session: jwt.sign(token, privateKey, signOpts), // XXX async
     };
   }
 
@@ -368,7 +375,7 @@ export class SimpleAuth implements Authorizer {
     if (session.email && payload.email && session.email !== payload.email) {
       return false;
     }
-    if (payload.userId && session.id.toString() !== payload.userId.toString()) {
+    if (payload.userId && session.userId !== payload.userId) {
       return false;
     }
     return true;
