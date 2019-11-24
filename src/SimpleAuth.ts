@@ -81,13 +81,20 @@ export class SimpleAuth implements Authorizer {
       };
       debug('verify', session, verifyOpts);
       const publicKey = await this.getPublicKey();
-      const decoded = jwt.verify(session, publicKey, verifyOpts); // XXX async
-      debug('decoded', decoded);
-      if (this.validateSessionPayload(sessionObj, decoded)) {
-        return decoded as DecodedSession;
-      } else {
-        return false;
-      }
+
+      return new Promise((resolve, reject) => {
+        jwt.verify(session, publicKey, verifyOpts, (err, decoded) => {
+          if (err) {
+            errors('authenticateSession internal', err.message);
+            resolve(false);
+          }
+          if (this.validateSessionPayload(sessionObj, decoded)) {
+            resolve(decoded as DecodedSession);
+          } else {
+            resolve(false);
+          }
+        });
+      });
     } catch (e) {
       errors('authenticateSession', e.message);
       return false;
@@ -360,13 +367,22 @@ export class SimpleAuth implements Authorizer {
       algorithm: SIGN_ALGORITHM,
       audience: email || '',
     };
-    return {
-      email,
-      exp,
-      iat: now / 1000,
-      userId: userId.toString(),
-      session: jwt.sign(token, privateKey, signOpts), // XXX async
-    };
+
+    return new Promise((resolve, reject) => {
+      jwt.sign(token, privateKey, signOpts, (err, session) => {
+        if (err) {
+          errors('updateSession', err.message);
+          reject(err);
+        }
+        resolve({
+          email,
+          exp,
+          iat: now / 1000,
+          userId: userId.toString(),
+          session,
+        });
+      });
+    });
   }
 
   // tslint:disable-next-line:no-any
