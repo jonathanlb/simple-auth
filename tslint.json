@@ -4,5 +4,8 @@
     "exclude": [
       "**/*.json"
     ]
-  }
+  },
+	"rules": {
+		"await-promise": true
+	}
 }

@@ -147,7 +147,7 @@ export class SimpleAuth implements Authorizer {
   }
 
   async close() {
-    await this.db.close();
+    this.db.close();
     debug('close');
     this.db = {} as sqlite3.Database;
     return;
