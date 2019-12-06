@@ -127,16 +127,18 @@ export class SimpleAuth implements Authorizer {
       return Promise.resolve(invalidSession());
     }
 
-    if (await bcrypt.compare(credentials.password, user.secret)) {
+    if (
+      user.secret &&
+      (await bcrypt.compare(credentials.password, user.secret))
+    ) {
       debug('password OK', user);
       return this.updateSession(user.id, user.email, sessionExpiryMillisOpt);
     }
 
-    if (user.recoveryExpiry < new Date().getTime() / 1000) {
-      debug('hint expired', user);
-      return Promise.resolve(invalidSession());
-    }
-    if (await bcrypt.compare(credentials.password, user.recovery)) {
+    if (
+      user.recovery &&
+      (await bcrypt.compare(credentials.password, user.recovery))
+    ) {
       debug('hint OK, resetting password', user);
       await this.setPassword(user.id, credentials.password);
       return this.updateSession(user.id, user.email, sessionExpiryMillisOpt);
