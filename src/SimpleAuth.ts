@@ -343,7 +343,7 @@ export class SimpleAuth implements Authorizer {
           'secret TEXT, recovery TEXT, recoveryExpiry INT DEFAULT 0)',
         'CREATE INDEX IF NOT EXISTS identities_by_id ON identities(id)',
         'CREATE INDEX IF NOT EXISTS identities_by_name ON identities(name)',
-        'CREATE INDEX IF NOT EXISTS identities_by_id ON identities(id)',
+        'CREATE INDEX IF NOT EXISTS identities_by_email ON identities(email)',
       ].reduce((accum: Promise<unknown>, query: string) => {
         debug('setup', query);
         return accum.then(() => sa.db.runAsync(query));
