@@ -144,7 +144,7 @@ export class SimpleAuth implements Authorizer {
       return this.updateSession(user.id, user.email, sessionExpiryMillisOpt);
     }
 
-    debug('found user, invalid password/hint', user);
+    debug('found user, invalid password/hint', user, credentials);
     return Promise.resolve(invalidSession());
   }
 
@@ -391,9 +391,14 @@ export class SimpleAuth implements Authorizer {
   validateSessionPayload(session: Session, payload: any): boolean {
     debug('validate', session, payload);
     if (session.email && payload.email && session.email !== payload.email) {
+      debug('email validation error');
       return false;
     }
-    if (payload.userId && session.userId !== payload.userId) {
+    if (
+      payload.userId &&
+      session.userId.toString() !== payload.userId.toString()
+    ) {
+      debug('userId validation error');
       return false;
     }
     return true;
