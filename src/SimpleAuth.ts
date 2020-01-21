@@ -198,6 +198,12 @@ export class SimpleAuth implements Authorizer {
     });
   }
 
+  async deleteUser(userId: number) {
+    const query = `DELETE FROM identities WHERE id=${userId}`;
+    debug('deleteUser', query);
+    return this.db.runAsync(query);
+  }
+
   async deliverPasswordReset(userInfo: UserInfo, newPassword: string) {
     throw new Error(
       'deliverPasswordReset not implemented/configured.\n' +
