@@ -20,7 +20,6 @@ const SALT_ROUNDS = 10;
 const SESSION_BYTES = 20;
 const SESSION_EXPIRY_MS = 86400000; // 24 hours
 const SIGN_ALGORITHM = 'RS256'; // for ssh-keygen -t rsa ... ; openssl rsa
-const TEMP_PASSWORD_LENGTH = 8;
 
 const debug = Debug('SimpleAuth');
 const errors = Debug('SimpleAuth:error');
@@ -310,9 +309,15 @@ export class SimpleAuth implements Authorizer {
       return '';
     }
 
-    const tempPassword = crypto
-      .randomBytes(TEMP_PASSWORD_LENGTH)
-      .toString('ascii');
+    // https://gist.github.com/6174/6062387
+    // Remove confusing 0/O and 1/l characters.
+    const tempPassword = Math.random()
+      .toString(36)
+      .substring(2)
+      .replace(/0/g, '_')
+      .replace(/O/g, '-')
+      .replace(/1/g, '+')
+      .replace(/l/g, ':');
 
     const now = new Date().getTime();
     const exp = (now + SESSION_EXPIRY_MS) / 1000;
