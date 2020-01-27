@@ -44,6 +44,7 @@ export class SimpleAuth implements Authorizer {
   privateKeyFileName: string;
   publicKey: string;
   publicKeyFileName: string;
+  deliverPasswordResetDefined: boolean;
 
   constructor(config: SimpleAuthConfig) {
     this.sqliteFile = config.dbFileName;
@@ -53,7 +54,10 @@ export class SimpleAuth implements Authorizer {
     this.publicKey = '';
     this.publicKeyFileName = config.publicKeyFileName;
     if (config.deliverPasswordReset) {
+      this.deliverPasswordResetDefined = true;
       this.deliverPasswordReset = config.deliverPasswordReset;
+    } else {
+      this.deliverPasswordResetDefined = false;
     }
   }
 
@@ -284,13 +288,11 @@ export class SimpleAuth implements Authorizer {
 
   async resetPassword(userId: UserInfo) {
     debug('resetPassword', userId);
-    if (!this.deliverPasswordReset) {
-      throw new Error(
-        'deliverPasswordReset not implemented/configured.\n' +
-          'monkey punch this SimpleAuth with async ' +
-          'deliverPasswordReset(UserInfo, string) method'
-      );
+    if (!this.deliverPasswordResetDefined) {
+      // call the stub throwing an error.
+      await this.deliverPasswordReset({} as UserInfo, '');
     }
+
     let validatedId: UserInfo = {
       id: '',
       name: '',

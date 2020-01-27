@@ -23,13 +23,16 @@ function aliceInfo(overrides: any = {}): UserInfo {
   );
 }
 
-async function createSimpleAuth(): Promise<SimpleAuth> {
+// tslint:disable-next-line:no-any
+async function createSimpleAuth(otherOpts?: any): Promise<SimpleAuth> {
   const config = {
     dbFileName: ':memory:',
     privateKeyFileName: 'test/jwtRS256.key',
     publicKeyFileName: 'test/jwtRS256.key.pub',
   };
-  const auth = new SimpleAuth(config);
+  const auth = new SimpleAuth(
+    Object.assign(config, otherOpts) as SimpleAuthConfig
+  );
   await auth.setup();
   return auth;
 }
@@ -89,17 +92,30 @@ describe('Maintain', () => {
     return auth.close();
   });
 
-  test('Resets a user password by id', async () => {
+  test('Reset password fails fast if not configured', async () => {
     const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    let message = '';
+    await auth.resetPassword(alice).catch(e => {
+      message = e.message;
+    });
+    expect(message).toEqual(
+      expect.stringContaining('deliverPasswordReset not implemented')
+    );
+  });
+
+  test('Resets a user password by id', async () => {
+    let newPassword = '';
+    const auth = await createSimpleAuth({
+      deliverPasswordReset: async (id: UserInfo, p: string) => {
+        newPassword = p;
+      },
+    });
     const alice = aliceInfo();
     await auth.createUser(alice);
 
     alice.email = '';
-    let newPassword = '';
     const oldPassword = alice.password;
-    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
-      newPassword = p;
-    };
     await auth.resetPassword(alice);
     expect(newPassword).not.toEqual('');
 
@@ -126,13 +142,17 @@ describe('Maintain', () => {
   });
 
   test('Resets a user password by email', async () => {
-    const auth = await createSimpleAuth();
+    let newPassword = '';
+    const auth = await createSimpleAuth({
+      deliverPasswordReset: async (id: UserInfo, p: string) => {
+        newPassword = p;
+      },
+    });
     const alice = aliceInfo();
     await auth.createUser(alice);
 
     alice.id = '';
     alice.name = '';
-    let newPassword = '';
     const oldPassword = alice.password;
     auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
       newPassword = p;
@@ -144,13 +164,18 @@ describe('Maintain', () => {
   });
 
   test('Resets a user password by name', async () => {
-    const auth = await createSimpleAuth();
+    let newPassword = '';
+    const auth = await createSimpleAuth({
+      deliverPasswordReset: async (id: UserInfo, p: string) => {
+        newPassword = p;
+      },
+    });
+
     const alice = aliceInfo();
     await auth.createUser(alice);
 
     alice.id = '';
     alice.email = '';
-    let newPassword = '';
     const oldPassword = alice.password;
     auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
       newPassword = p;
@@ -176,7 +201,6 @@ describe('Maintain', () => {
     return auth.close();
   });
 });
-
 describe('Operation', () => {
   test('Initializes', async () => {
     const auth = await createSimpleAuth();
@@ -389,23 +413,6 @@ describe('Operation', () => {
     });
     expect(session.session).toBeTruthy();
     expect(session.userId).toEqual(alice.id);
-    return auth.close();
-  });
-
-  test('Checks for password delivery override', async () => {
-    const auth = await createSimpleAuth();
-    const alice = aliceInfo();
-    await auth.createUser(alice);
-
-    let error;
-    try {
-      await auth.resetPassword(alice);
-    } catch (e) {
-      error = e;
-    }
-    expect(error.message).toEqual(
-      expect.stringMatching(/deliverPasswordReset not implemented/)
-    );
     return auth.close();
   });
 
