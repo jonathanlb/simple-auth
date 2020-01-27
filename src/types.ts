@@ -29,6 +29,7 @@ export interface SimpleAuthConfig {
   dbFileName: string;
   privateKeyFileName: string;
   publicKeyFileName: string;
+  deliverPasswordReset?: (info: UserInfo, newPassword: string) => Promise<void>;
 }
 
 export const SIMPLE_AUTH_ERRORS = {

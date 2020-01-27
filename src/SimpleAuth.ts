@@ -52,6 +52,9 @@ export class SimpleAuth implements Authorizer {
     this.privateKeyFileName = config.privateKeyFileName;
     this.publicKey = '';
     this.publicKeyFileName = config.publicKeyFileName;
+    if (config.deliverPasswordReset) {
+      this.deliverPasswordReset = config.deliverPasswordReset;
+    }
   }
 
   async authenticateSession(
@@ -280,6 +283,14 @@ export class SimpleAuth implements Authorizer {
   }
 
   async resetPassword(userId: UserInfo) {
+    debug('resetPassword', userId);
+    if (!this.deliverPasswordReset) {
+      throw new Error(
+        'deliverPasswordReset not implemented/configured.\n' +
+          'monkey punch this SimpleAuth with async ' +
+          'deliverPasswordReset(UserInfo, string) method'
+      );
+    }
     let validatedId: UserInfo = {
       id: '',
       name: '',
