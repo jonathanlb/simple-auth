@@ -1,5 +1,4 @@
 import bcrypt = require('bcrypt');
-import crypto = require('crypto');
 import Debug = require('debug');
 import fs = require('fs');
 import jwt = require('jsonwebtoken');
