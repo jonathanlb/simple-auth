@@ -69,7 +69,7 @@ describe('Maintain', () => {
     return auth.close();
   });
 
-  test('Sets a user password', async () => {
+  test('Sets a user password with string id', async () => {
     const auth = await createSimpleAuth();
     const alice = aliceInfo();
     await auth.createUser(alice);
@@ -77,6 +77,50 @@ describe('Maintain', () => {
     const newPassword = alice.password + 'XXX';
     // tslint:disable-next-line
     await auth.setPassword(parseInt(alice.id, 10), newPassword);
+    let result = await auth.authenticateUser({
+      name: alice.name,
+      password: newPassword,
+    });
+    expect(result.session).toBeTruthy();
+
+    result = await auth.authenticateUser({
+      name: alice.name,
+      password: newPassword + '___',
+    });
+    expect(result.session).not.toBeTruthy();
+
+    return auth.close();
+  });
+
+  test('Sets a user password with number id', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    const newPassword = alice.password + 'XXX';
+    await auth.setPassword(alice.id, newPassword);
+    let result = await auth.authenticateUser({
+      name: alice.name,
+      password: newPassword,
+    });
+    expect(result.session).toBeTruthy();
+
+    result = await auth.authenticateUser({
+      name: alice.name,
+      password: newPassword + '___',
+    });
+    expect(result.session).not.toBeTruthy();
+
+    return auth.close();
+  });
+
+  test('Sets a user password with user info', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    const newPassword = alice.password + 'XXX';
+    await auth.setPassword(alice, newPassword);
     let result = await auth.authenticateUser({
       name: alice.name,
       password: newPassword,
@@ -154,9 +198,6 @@ describe('Maintain', () => {
     alice.id = '';
     alice.name = '';
     const oldPassword = alice.password;
-    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
-      newPassword = p;
-    };
     await auth.resetPassword(alice);
     expect(newPassword).not.toEqual('');
 
@@ -176,12 +217,44 @@ describe('Maintain', () => {
 
     alice.id = '';
     alice.email = '';
-    const oldPassword = alice.password;
-    auth.deliverPasswordReset = async (id: UserInfo, p: string) => {
-      newPassword = p;
-    };
     await auth.resetPassword(alice);
     expect(newPassword).not.toEqual('');
+
+    return auth.close();
+  });
+
+  test('Resets a user password to known value', async () => {
+    let deliveredPassword = '';
+    const auth = await createSimpleAuth({
+      deliverPasswordReset: async (id: UserInfo, p: string) => {
+        deliveredPassword = p;
+      },
+    });
+
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+
+    alice.id = '';
+    alice.email = '';
+    const newPassword = 'reset!';
+    await auth.resetPassword(alice, newPassword);
+    expect(deliveredPassword).toEqual(newPassword);
+
+    return auth.close();
+  });
+
+  test('Fails to set a non-user password', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+
+    const newPassword = alice.password + 'XXX';
+    let message = '';
+    try {
+      await auth.setPassword(alice, newPassword);
+    } catch (e) {
+      message = e.message;
+    }
+    expect(message).toEqual(expect.stringMatching(/cannot set password for/));
 
     return auth.close();
   });

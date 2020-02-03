@@ -284,25 +284,13 @@ export class SimpleAuth implements Authorizer {
     return user;
   }
 
-  async resetPassword(userId: UserInfo) {
+  async resetPassword(userId: UserInfo, optPassword?: string) {
     debug('resetPassword', userId);
     if (!this.deliverPasswordResetDefined) {
       // call the stub throwing an error.
       await this.deliverPasswordReset({} as UserInfo, '');
     }
-
-    let validatedId: UserInfo = {
-      id: '',
-      name: '',
-    };
-    if (userId.id) {
-      validatedId = await this.getUser(userId.id);
-    } else if (userId.email) {
-      validatedId = await this.getUserByEmail(userId.email);
-    } else if (userId.name) {
-      validatedId = await this.getUserByName(userId.name);
-    }
-
+    const validatedId = await this.validateId(userId);
     if (!validatedId || !validatedId.id) {
       errors(`cannot reset password for ${userId}`);
       return '';
@@ -310,13 +298,15 @@ export class SimpleAuth implements Authorizer {
 
     // https://gist.github.com/6174/6062387
     // Remove confusing 0/O and 1/l characters.
-    const tempPassword = Math.random()
-      .toString(36)
-      .substring(2)
-      .replace(/0/g, '_')
-      .replace(/O/g, '-')
-      .replace(/1/g, '+')
-      .replace(/l/g, ':');
+    const tempPassword =
+      optPassword ||
+      Math.random()
+        .toString(36)
+        .substring(2)
+        .replace(/0/g, '_')
+        .replace(/O/g, '-')
+        .replace(/1/g, '+')
+        .replace(/l/g, ':');
 
     const now = new Date().getTime();
     const exp = (now + SESSION_EXPIRY_MS) / 1000;
@@ -333,7 +323,22 @@ export class SimpleAuth implements Authorizer {
     return tempPassword;
   }
 
-  async setPassword(userId: number, password: string) {
+  async setPassword(id: number | string | UserInfo, password: string) {
+    let userId = 0;
+    if (typeof id === 'string') {
+      // tslint:disable-next-line
+      userId = parseInt(id, 10);
+    } else if (typeof id === 'number') {
+      userId = id;
+    } else {
+      const validatedId = await this.validateId(id);
+      if (!validatedId) {
+        throw new Error(`cannot set password for ${id}`);
+      }
+      // tslint:disable-next-line
+      userId = parseInt((validatedId as UserInfo).id, 10);
+    }
+
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
     const query = `UPDATE identities SET secret=${SqlString.escape(
       hashed
@@ -408,6 +413,18 @@ export class SimpleAuth implements Authorizer {
         });
       });
     });
+  }
+
+  validateId(userId: UserInfo): Promise<UserInfo | void> {
+    if (userId.id) {
+      return this.getUser(userId.id);
+    } else if (userId.email) {
+      return this.getUserByEmail(userId.email);
+    } else if (userId.name) {
+      return this.getUserByName(userId.name);
+    } else {
+      return Promise.resolve(undefined);
+    }
   }
 
   // tslint:disable-next-line:no-any
