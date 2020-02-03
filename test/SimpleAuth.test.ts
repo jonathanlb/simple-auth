@@ -24,6 +24,19 @@ function aliceInfo(overrides: any = {}): UserInfo {
 }
 
 // tslint:disable-next-line:no-any
+function bobInfo(overrides: any = {}): UserInfo {
+  return Object.assign(
+    {
+      email: 'bob@example.com',
+      id: '89',
+      name: 'Bob',
+      password: 'hUsh',
+    },
+    overrides
+  );
+}
+
+// tslint:disable-next-line:no-any
 async function createSimpleAuth(otherOpts?: any): Promise<SimpleAuth> {
   const config = {
     dbFileName: ':memory:',
@@ -273,7 +286,86 @@ describe('Maintain', () => {
 
     return auth.close();
   });
+
+  test('Validates email by prefix', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const userId = { email: 'alice' } as UserInfo;
+    const validatedId = (await auth.validateId(
+      userId,
+      'beginsWith'
+    )) as UserInfo;
+    expect(validatedId.id).toBeDefined();
+    return auth.close();
+  });
+
+  test('Validates email by substring', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const userId = { email: '@' } as UserInfo;
+    const validatedId = (await auth.validateId(userId, 'contains')) as UserInfo;
+    expect(validatedId.id).toBeDefined();
+    return auth.close();
+  });
+
+  test('Validates email by suffix', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const userId = { email: '.com' } as UserInfo;
+    const validatedId = (await auth.validateId(userId, 'endsWith')) as UserInfo;
+    expect(validatedId.id).toBeDefined();
+    return auth.close();
+  });
+
+  test('Handles erroneous multiple email validation', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const bob = bobInfo();
+    await auth.createUser(bob);
+    const userId = { email: '@' } as UserInfo;
+    const validatedId = (await auth.validateId(userId, 'contains')) as UserInfo;
+    expect(validatedId).toBeUndefined();
+    return auth.close();
+  });
+
+  test('Validates name by prefix', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const userId = { name: 'A' } as UserInfo;
+    const validatedId = (await auth.validateId(
+      userId,
+      'beginsWith'
+    )) as UserInfo;
+    expect(validatedId.id).toBeDefined();
+    return auth.close();
+  });
+
+  test('Validates name by substring', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const userId = { name: 'li' } as UserInfo;
+    const validatedId = (await auth.validateId(userId, 'contains')) as UserInfo;
+    expect(validatedId.id).toBeDefined();
+    return auth.close();
+  });
+
+  test('Validates name by suffix', async () => {
+    const auth = await createSimpleAuth();
+    const alice = aliceInfo();
+    await auth.createUser(alice);
+    const userId = { name: 'e' } as UserInfo;
+    const validatedId = (await auth.validateId(userId, 'endsWith')) as UserInfo;
+    expect(validatedId.id).toBeDefined();
+    return auth.close();
+  });
 });
+
 describe('Operation', () => {
   test('Initializes', async () => {
     const auth = await createSimpleAuth();

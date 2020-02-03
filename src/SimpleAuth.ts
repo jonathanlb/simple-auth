@@ -20,6 +20,10 @@ const SESSION_BYTES = 20;
 const SESSION_EXPIRY_MS = 86400000; // 24 hours
 const SIGN_ALGORITHM = 'RS256'; // for ssh-keygen -t rsa ... ; openssl rsa
 
+const SEARCH_BEGINS_WITH = 'beginswith';
+const SEARCH_CONTAINS = 'contains';
+const SEARCH_ENDS_WITH = 'endswith';
+
 const debug = Debug('SimpleAuth');
 const errors = Debug('SimpleAuth:error');
 
@@ -260,37 +264,101 @@ export class SimpleAuth implements Authorizer {
     return user;
   }
 
-  async getUserByEmail(email: string): Promise<UserInfo> {
-    const query = `SELECT * FROM identities WHERE email=${SqlString.escape(
-      email.trim().toLowerCase()
-    )}`;
+  async getUserByEmail(email: string, searchOpt?: string): Promise<UserInfo> {
+    let emailLike;
+    let query;
+    const lowerCaseEmail = email.trim().toLowerCase();
+    const search = (searchOpt || '').toLowerCase();
+
+    if (!search) {
+      query = `SELECT * FROM identities WHERE email=${SqlString.escape(
+        lowerCaseEmail
+      )}`;
+    } else {
+      switch (search) {
+        case SEARCH_BEGINS_WITH:
+          emailLike = `${lowerCaseEmail}%`;
+          break;
+        case SEARCH_CONTAINS:
+          emailLike = `%${lowerCaseEmail}%`;
+          break;
+        case SEARCH_ENDS_WITH:
+          emailLike = `%${lowerCaseEmail}`;
+          break;
+        default:
+          emailLike = lowerCaseEmail;
+      }
+      query = `SELECT * FROM identities WHERE email LIKE ${SqlString.escape(
+        emailLike
+      )}`;
+    }
     debug('getUserByEmail', query);
-    const user = await this.db.getAsync(query);
-    if (user && user.id) {
-      user.id = user.id.toString();
+    const results = await this.db.allAsync(query);
+    debug('result getUserByEmail', results);
+    if (results && results.length === 1) {
+      if (results[0].id) {
+        results[0].id = results[0].id.toString();
+      }
+      return results[0];
+    } else {
+      results.length = 0;
+      return results[0]; // undefined
     }
-    return user;
   }
 
-  async getUserByName(name: string): Promise<UserInfo> {
-    const query = `SELECT * FROM identities WHERE name=${SqlString.escape(
-      name.trim()
-    )}`;
+  async getUserByName(name: string, searchOpt?: string): Promise<UserInfo> {
+    const search = (searchOpt || '').toLowerCase();
+    const nameTrim = name.trim();
+    let query;
+
+    if (!search) {
+      query = `SELECT * FROM identities WHERE name=${SqlString.escape(
+        nameTrim
+      )}`;
+    } else {
+      let nameLike;
+      switch (search) {
+        case SEARCH_BEGINS_WITH:
+          nameLike = `${nameTrim}%`;
+          break;
+        case SEARCH_CONTAINS:
+          nameLike = `%${nameTrim}%`;
+          break;
+        case SEARCH_ENDS_WITH:
+          nameLike = `%${nameTrim}`;
+          break;
+        default:
+          nameLike = `${nameTrim}`;
+      }
+      query = `SELECT * FROM identities WHERE name LIKE ${SqlString.escape(
+        nameLike
+      )}`;
+    }
     debug('getUserByName', query);
-    const user = await this.db.getAsync(query);
-    if (user && user.id) {
-      user.id = user.id.toString();
+    const results = await this.db.allAsync(query);
+    debug('results getUserByName', results);
+    if (results && results.length === 1) {
+      if (results[0].id) {
+        results[0].id = results[0].id.toString();
+      }
+      return results[0];
+    } else {
+      results.length = 0;
+      return results[0]; // undefined
     }
-    return user;
   }
 
-  async resetPassword(userId: UserInfo, optPassword?: string) {
+  async resetPassword(
+    userId: UserInfo,
+    optPassword?: string,
+    searchOpt?: string
+  ) {
     debug('resetPassword', userId);
     if (!this.deliverPasswordResetDefined) {
       // call the stub throwing an error.
       await this.deliverPasswordReset({} as UserInfo, '');
     }
-    const validatedId = await this.validateId(userId);
+    const validatedId = await this.validateId(userId, searchOpt);
     if (!validatedId || !validatedId.id) {
       errors(`cannot reset password for ${userId}`);
       return '';
@@ -415,13 +483,13 @@ export class SimpleAuth implements Authorizer {
     });
   }
 
-  validateId(userId: UserInfo): Promise<UserInfo | void> {
+  validateId(userId: UserInfo, searchOpt?: string): Promise<UserInfo | void> {
     if (userId.id) {
       return this.getUser(userId.id);
     } else if (userId.email) {
-      return this.getUserByEmail(userId.email);
+      return this.getUserByEmail(userId.email, searchOpt);
     } else if (userId.name) {
-      return this.getUserByName(userId.name);
+      return this.getUserByName(userId.name, searchOpt);
     } else {
       return Promise.resolve(undefined);
     }
