@@ -224,8 +224,11 @@ export class SimpleAuth implements Authorizer {
   fileToString(fileName: string): Promise<string> {
     return new Promise((resolve, reject) => {
       fs.readFile(fileName, (err, data) => {
-        if (err) reject(err);
-        resolve(data.toString());
+        if (err) {
+          reject(err);
+        } else {
+          resolve(data.toString());
+        }
       });
     });
   }
