@@ -1,5 +1,6 @@
+import { Server } from './Server';
 import { SimpleAuth } from './SimpleAuth';
 
 import { SimpleAuthConfig } from './types';
 
-export { SimpleAuth, SimpleAuthConfig };
+export { Server, SimpleAuth, SimpleAuthConfig };

@@ -2,6 +2,7 @@ export interface Authorizer {
   authenticateSession: (session: Session) => Promise<unknown>;
   authenticateUser: (credentials: Credentials) => Promise<Session>;
   close: () => Promise<unknown>;
+  getPublicKey: () => Promise<string>;
   setup: () => Promise<unknown>;
 }
 
@@ -23,6 +24,13 @@ export interface DecodedSession {
 
 export interface Session extends DecodedSession {
   session: string;
+}
+
+export interface ServerConfig {
+  cookieExpiresMs?: number;
+  cookieKey?: string;
+  headerReply?: boolean;
+  port: number;
 }
 
 export interface SimpleAuthConfig {

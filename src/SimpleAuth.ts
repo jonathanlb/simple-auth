@@ -66,48 +66,8 @@ export class SimpleAuth implements Authorizer {
   async authenticateSession(
     sessionObj: Session
   ): Promise<DecodedSession | boolean> {
-    try {
-      const { session } = sessionObj;
-      const [header, payload, sig] = session.split('.');
-      debug('auth', header, payload, sig);
-      if (!payload || !sig) {
-        return false;
-      }
-      const payloadObj = JSON.parse(Buffer.from(payload, 'base64').toString());
-      debug('payloadObj', payloadObj);
-      const { email, exp } = payloadObj;
-      const headerObj = JSON.parse(Buffer.from(header, 'base64').toString());
-      debug('headerObj', headerObj);
-      const { clockTimestamp } = headerObj;
-
-      if (exp < new Date().getTime() / 1000) {
-        throw new SIMPLE_AUTH_ERRORS.ExpiredSession(exp);
-      }
-
-      const verifyOpts = {
-        algorithm: headerObj.alg,
-        audience: email || '',
-      };
-      debug('verify', session, verifyOpts);
-      const publicKey = await this.getPublicKey();
-
-      return new Promise((resolve, reject) => {
-        jwt.verify(session, publicKey, verifyOpts, (err, decoded) => {
-          if (err) {
-            errors('authenticateSession internal', err.message);
-            resolve(false);
-          }
-          if (this.validateSessionPayload(sessionObj, decoded)) {
-            resolve(decoded as DecodedSession);
-          } else {
-            resolve(false);
-          }
-        });
-      });
-    } catch (e) {
-      errors('authenticateSession', e.message);
-      return false;
-    }
+    const publicKey = await this.getPublicKey();
+    return SimpleAuth.decodeSession(sessionObj, publicKey).catch(e => false);
   }
 
   async authenticateUser(
@@ -498,8 +458,50 @@ export class SimpleAuth implements Authorizer {
     }
   }
 
+  static async decodeSession(
+    sessionObj: Session,
+    publicKey: string
+  ): Promise<DecodedSession | boolean> {
+    const { session } = sessionObj;
+    const [header, payload, sig] = session.split('.');
+    debug('auth', header, payload, sig);
+    if (!payload || !sig) {
+      return false;
+    }
+    const payloadObj = JSON.parse(Buffer.from(payload, 'base64').toString());
+    debug('payloadObj', payloadObj);
+    const { email, exp } = payloadObj;
+    const headerObj = JSON.parse(Buffer.from(header, 'base64').toString());
+    debug('headerObj', headerObj);
+    const { clockTimestamp } = headerObj;
+
+    if (exp < new Date().getTime() / 1000) {
+      return Promise.reject(new SIMPLE_AUTH_ERRORS.ExpiredSession(exp));
+    }
+
+    const verifyOpts = {
+      algorithm: headerObj.alg,
+      audience: email || '',
+    };
+    debug('verify', session, verifyOpts);
+
+    return new Promise((resolve, reject) => {
+      jwt.verify(session, publicKey, verifyOpts, (err, decoded) => {
+        if (err) {
+          errors('authenticateSession internal', err.message);
+          resolve(false);
+        }
+        if (SimpleAuth.validateSessionPayload(sessionObj, decoded)) {
+          resolve(decoded as DecodedSession);
+        } else {
+          resolve(false);
+        }
+      });
+    });
+  }
+
   // tslint:disable-next-line:no-any
-  validateSessionPayload(session: Session, payload: any): boolean {
+  static validateSessionPayload(session: Session, payload: any): boolean {
     debug('validate', session, payload);
     if (session.email && payload.email && session.email !== payload.email) {
       debug('email validation error');
