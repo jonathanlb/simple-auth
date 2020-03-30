@@ -1,7 +1,12 @@
+import Debug = require('debug');
 import express = require('express');
+import fs = require('fs');
+import https = require('https');
+import tls = require('tls');
 import { IncomingHttpHeaders } from 'http';
 import { Authorizer, ServerConfig } from './types';
 
+const debug = Debug('Server');
 const HEADER_PASSWORD_KEY = 'x-access-token';
 const COOKIE_ACCESS_KEY = 'ticket';
 
@@ -15,6 +20,7 @@ export class Server {
   }
 
   async start(config: ServerConfig) {
+    debug('start', config);
     if (!this.setup) {
       this.setup = true;
       await this.auth.setup();
@@ -28,6 +34,7 @@ export class Server {
     router.get(
       '/public-key',
       async (req: express.Request, res: express.Response) => {
+        debug('/public-key');
         res.status(200).send(await this.auth.getPublicKey());
       }
     );
@@ -39,6 +46,7 @@ export class Server {
         const password = req.headers[HEADER_PASSWORD_KEY] as string;
         const credentials = { email, password };
 
+        debug('/ticket-by-email/', email, password !== undefined);
         if (!email || !password) {
           res.status(400).send('Malformed request');
           return;
@@ -63,8 +71,40 @@ export class Server {
       }
     );
 
-    if (config.port) {
+    let listen = () => {
+      debug('http listen', config.port);
       router.listen(config.port);
+    };
+
+    if (config.https) {
+      const server = https.createServer(
+        {
+          SNICallback: (servername: string, cb) => {
+            debug(
+              'SNICallback',
+              config.https!.keyFileName,
+              config.https!.certFileName,
+              config.https!.caFileName
+            );
+            const ctx = tls.createSecureContext({
+              key: fs.readFileSync(config.https!.keyFileName, 'utf8'),
+              cert: fs.readFileSync(config.https!.certFileName, 'utf8'),
+              ca: fs.readFileSync(config.https!.caFileName, 'utf8'),
+            });
+            debug('SNICallback continues');
+            cb(null, ctx);
+          },
+        },
+        router
+      );
+      listen = () => {
+        debug('https listen', config.port);
+        server.listen(config.port);
+      };
+    }
+
+    if (config.port) {
+      listen();
     }
     return router;
   }

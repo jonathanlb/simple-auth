@@ -26,10 +26,17 @@ export interface Session extends DecodedSession {
   session: string;
 }
 
+export interface HttpsConfig {
+  caFileName: string;
+  certFileName: string;
+  keyFileName: string;
+}
+
 export interface ServerConfig {
   cookieExpiresMs?: number;
   cookieKey?: string;
   headerReply?: boolean;
+  https?: HttpsConfig;
   port: number;
 }
 
