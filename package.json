@@ -42,7 +42,7 @@
     "typescript": "~3.5.0"
   },
   "dependencies": {
-    "bcrypt": "^3.0.6",
+    "bcrypt": "^5.0.0",
     "debug": "^4.1.1",
     "jsonwebtoken": "^8.5.1",
     "sqlite3-promise": "git://github.com/jonathanlb/node-sqlite3-promise.git#v2.0.0",
