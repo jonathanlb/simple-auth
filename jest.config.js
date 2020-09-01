@@ -1,6 +1,6 @@
 module.exports = {
   roots: [
-    './test'
+    './test',
   ],
   preset: 'ts-jest',
   testEnvironment: 'node',
